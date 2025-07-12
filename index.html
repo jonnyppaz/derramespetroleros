@@ -1,0 +1,113 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Geoportal de Derrames Petroleros</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
+  <script src="https://unpkg.com/@supabase/supabase-js"></script>
+  <style>
+    #map { height: 90vh; width: 100%; }
+    .control-panel {
+      padding: 10px;
+      background: #f0f0f0;
+    }
+  </style>
+</head>
+<body>
+  <h2 style="text-align:center">Geoportal - Monitoreo de Derrames Petroleros</h2>
+  <div class="control-panel">
+    <label>Coordenadas (Lat,Lng):</label>
+    <input type="text" id="coords" placeholder="Ej: -0.1234, -76.5432">
+    <button onclick="reportarDerrame()">Reportar Derrame</button>
+    <br><br>
+    <label>Filtrar Capa:</label>
+    <select id="capaSelect" onchange="filtrarCapa()">
+      <option value="capas">Todas</option>
+    </select>
+  </div>
+  <div id="map"></div>
+
+  <script>
+    const supabase = supabase.createClient(
+      'https://ifofalnxospnvasapqcp.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlmb2ZhbG54b3NwbnZhc2FwcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzMzA2MTMsImV4cCI6MjA2NzkwNjYxM30.ju3sOjdhAtW2ug2XcYwAhj2jz4bCrzYS6QoAfCJNaa8'
+    );
+
+    const map = L.map('map').setView([-0.2, -76.5], 8);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18
+    }).addTo(map);
+
+    async function cargarCapas() {
+      const { data: capas } = await supabase.from('capas').select('*');
+      capas.forEach(c => {
+        const option = document.createElement("option");
+        option.value = c.nombre;
+        option.textContent = c.nombre;
+        document.getElementById("capaSelect").appendChild(option);
+      });
+      mostrarCapas(capas);
+    }
+
+    async function mostrarCapas(listaCapas) {
+      listaCapas.forEach(async (capa) => {
+        const { data: features } = await supabase.from(capa.nombre).select('*');
+        features.forEach(f => {
+          if (f.geojson) {
+            const geo = JSON.parse(f.geojson);
+            L.geoJSON(geo).addTo(map).bindPopup(`<strong>${capa.nombre}</strong><br>${f.descripcion || ''}`);
+          }
+        });
+      });
+    }
+
+    async function filtrarCapa() {
+      map.eachLayer(layer => {
+        if (layer instanceof L.GeoJSON) map.removeLayer(layer);
+      });
+      const filtro = document.getElementById('capaSelect').value;
+      if (filtro === 'capas') {
+        const { data: capas } = await supabase.from('capas').select('*');
+        mostrarCapas(capas);
+      } else {
+        const { data: features } = await supabase.from(filtro).select('*');
+        features.forEach(f => {
+          if (f.geojson) {
+            const geo = JSON.parse(f.geojson);
+            L.geoJSON(geo).addTo(map).bindPopup(`<strong>${filtro}</strong><br>${f.descripcion || ''}`);
+          }
+        });
+      }
+    }
+
+    async function reportarDerrame() {
+      const coordInput = document.getElementById("coords").value;
+      const partes = coordInput.split(',');
+      if (partes.length !== 2) {
+        alert("Ingrese coordenadas válidas (lat,lng)");
+        return;
+      }
+      const lat = parseFloat(partes[0]);
+      const lng = parseFloat(partes[1]);
+
+      const punto = {
+        type: "Point",
+        coordinates: [lng, lat]
+      };
+
+      const { error } = await supabase.from('reportes').insert([{ geojson: JSON.stringify(punto), descripcion: 'Derrame reportado manualmente' }]);
+      if (!error) {
+        alert("Reporte enviado correctamente.");
+        L.geoJSON(punto).addTo(map).bindPopup("Nuevo derrame reportado");
+      } else {
+        alert("Error al enviar reporte");
+      }
+    }
+
+    cargarCapas();
+  </script>
+</body>
+</html>
