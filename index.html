@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Geoportal Interactivo de Derrames Petroleros</title>
+  <title>Geoportal Interactivo - Modo Depuración</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
   <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
@@ -22,7 +22,7 @@
   </style>
 </head>
 <body>
-  <h2 style="text-align:center">Geoportal Interactivo - Monitoreo de Derrames Petroleros</h2>
+  <h2 style="text-align:center">Geoportal Interactivo - Modo Depuración</h2>
   <div class="control-panel">
     <label><strong>Filtrar Capa:</strong></label>
     <select id="capaSelect" onchange="filtrarCapa()">
@@ -61,6 +61,21 @@
       markerSeleccionado.lng = lng;
     });
 
+    function invertirCoordenadas(geo) {
+      if (geo.type === "MultiLineString") {
+        geo.coordinates = geo.coordinates.map(linea => linea.map(coord => [coord[1], coord[0]]));
+      } else if (geo.type === "LineString") {
+        geo.coordinates = geo.coordinates.map(coord => [coord[1], coord[0]]);
+      } else if (geo.type === "Point") {
+        geo.coordinates = [geo.coordinates[1], geo.coordinates[0]];
+      } else if (geo.type === "MultiPolygon") {
+        geo.coordinates = geo.coordinates.map(pol => pol.map(ring => ring.map(coord => [coord[1], coord[0]])));
+      } else if (geo.type === "Polygon") {
+        geo.coordinates = geo.coordinates.map(ring => ring.map(coord => [coord[1], coord[0]]));
+      }
+      return geo;
+    }
+
     async function cargarCapas() {
       const vistas = [
         'vista_gasoducto',
@@ -82,20 +97,25 @@
       listaCapas.forEach(async (nombre) => {
         try {
           const { data: features, error } = await supabase.from(nombre).select('*');
+          console.log(`✔ Capa '${nombre}' cargada con ${features.length} elementos.`);
           if (error) console.error(`Error al cargar ${nombre}:`, error);
           features.forEach(f => {
-            if (f.geojson) {
-              const geo = JSON.parse(f.geojson);
+            try {
+              let geo = JSON.parse(f.geojson);
+              geo = invertirCoordenadas(geo);
               L.geoJSON(geo, {
-                style: { color: '#0074D9', weight: 2 },
+                style: { color: '#3388ff', weight: 2 },
                 onEachFeature: function (feature, layer) {
-                  layer.bindPopup(`<strong>${nombre}</strong><br>${f.descripcion || 'Sin descripción'}`);
+                  const desc = f.descripcion || 'Sin descripción';
+                  layer.bindPopup(`<strong>${nombre}</strong><br>${desc}`);
                 }
               }).addTo(map);
+            } catch (err) {
+              console.warn(`⚠ Error en parseo GeoJSON (${nombre} - id ${f.id}):`, err, f.geojson);
             }
           });
         } catch (err) {
-          console.error(`Error general en capa ${nombre}:`, err);
+          console.error(`❌ Error general en capa ${nombre}:`, err);
         }
       });
     }
@@ -111,19 +131,24 @@
         cargarCapas();
       } else {
         const { data: features, error } = await supabase.from(filtro).select('*');
+        console.log(`✔ Filtro aplicado a '${filtro}' con ${features.length} elementos.`);
         if (error) {
           console.error(`Error al cargar ${filtro}:`, error);
           return;
         }
         features.forEach(f => {
-          if (f.geojson) {
-            const geo = JSON.parse(f.geojson);
+          try {
+            let geo = JSON.parse(f.geojson);
+            geo = invertirCoordenadas(geo);
             L.geoJSON(geo, {
               style: { color: '#FF4136', weight: 2 },
               onEachFeature: function (feature, layer) {
-                layer.bindPopup(`<strong>${filtro}</strong><br>${f.descripcion || 'Sin descripción'}`);
+                const desc = f.descripcion || 'Sin descripción';
+                layer.bindPopup(`<strong>${filtro}</strong><br>${desc}`);
               }
             }).addTo(map);
+          } catch (err) {
+            console.warn(`⚠ Error en parseo GeoJSON (${filtro} - id ${f.id}):`, err, f.geojson);
           }
         });
       }
