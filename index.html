@@ -1,110 +1,112 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Geoportal - Monitoreo de Derrames Petroleros</title>
+  <title>Reporte de Evento</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
-    body { margin: 0; font-family: Arial, sans-serif; }
-    header { background: #333; color: white; padding: 1em; text-align: center; font-size: 1.5em; }
-    .controls {
-      padding: 10px;
-      background: #f0f0f0;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-      justify-content: center;
+    #map {
+      height: 300px;
+      margin-bottom: 15px;
     }
-    #map { height: 85vh; width: 100%; }
-    input[type="text"] { padding: 5px; width: 200px; }
-    select, button { padding: 5px; }
+    form {
+      max-width: 500px;
+      margin: auto;
+    }
+    label, input, textarea, button {
+      display: block;
+      width: 100%;
+      margin-bottom: 10px;
+    }
   </style>
 </head>
 <body>
-  <header>Geoportal - Monitoreo de Derrames Petroleros</header>
-  <div class="controls">
-    <label>Coordenadas (Lat,Lng): <input type="text" id="coordInput" placeholder="Ej: -0.1234, -76.5432" /></label>
-    <button onclick="reportSpill()">Reportar Derrame</button>
-    <label>Filtrar Capa:
-      <select id="layerSelect">
-        <option value="">Todas</option>
-      </select>
-    </label>
-    <button onclick="loadLayer()">Cargar Capa</button>
-  </div>
+
+<h2 style="text-align:center;">Formulario de Reporte de Evento</h2>
+
+<form id="eventoForm">
+  <label>Título del evento:</label>
+  <input type="text" id="titulo" required>
+
+  <label>Descripción:</label>
+  <textarea id="descripcion" required></textarea>
+
+  <label>Fecha del evento:</label>
+  <input type="date" id="fecha" required>
+
+  <label>Ubicación del evento (selecciona en el mapa):</label>
   <div id="map"></div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
-  <script>
-    const supabaseUrl = 'https://ifofalnxospnvasapqcp.supabase.co';
-    const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlmb2ZhbG54b3NwbnZhc2FwcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzMzA2MTMsImV4cCI6MjA2NzkwNjYxM30.ju3sOjdhAtW2ug2XcYwAhj2jz4bCrzYS6QoAfCJNaa8';
-    const supabase = supabase.createClient(supabaseUrl, supabaseKey);
+  <input type="hidden" id="lat">
+  <input type="hidden" id="lng">
 
-    const map = L.map('map').setView([-0.25, -76.5], 7);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
-    }).addTo(map);
+  <button type="submit">Enviar reporte</button>
+</form>
 
-    async function loadLayerList() {
-      const { data, error } = await supabase.from('layers').select('name');
-      if (error) {
-        console.error('Error cargando capas:', error);
-        return;
-      }
-      const select = document.getElementById('layerSelect');
-      data.forEach(layer => {
-        const opt = document.createElement('option');
-        opt.value = layer.name;
-        opt.textContent = layer.name;
-        select.appendChild(opt);
-      });
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<!-- Supabase JS -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.38.3/dist/umd/supabase.min.js"></script>
+
+<script>
+  // Configuración de Supabase
+  const SUPABASE_URL = 'https://ifofalnxospnvasapqcp.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlmb2ZhbG54b3NwbnZhc2FwcWNwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIzMzA2MTMsImV4cCI6MjA2NzkwNjYxM30.ju3sOjdhAtW2ug2XcYwAhj2jz4bCrzYS6QoAfCJNaa8';
+
+  const supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  // Inicialización del mapa
+  const map = L.map('map').setView([-0.2, -78.5], 6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+
+  let marker;
+
+  map.on('click', function(e) {
+    const { lat, lng } = e.latlng;
+    if (marker) {
+      marker.setLatLng([lat, lng]);
+    } else {
+      marker = L.marker([lat, lng]).addTo(map);
+    }
+    document.getElementById('lat').value = lat;
+    document.getElementById('lng').value = lng;
+  });
+
+  // Manejo del formulario
+  document.getElementById('eventoForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const titulo = document.getElementById('titulo').value;
+    const descripcion = document.getElementById('descripcion').value;
+    const fecha = document.getElementById('fecha').value;
+    const lat = parseFloat(document.getElementById('lat').value);
+    const lng = parseFloat(document.getElementById('lng').value);
+
+    if (isNaN(lat) || isNaN(lng)) {
+      alert("Debes seleccionar una ubicación en el mapa.");
+      return;
     }
 
-    async function loadLayer() {
-      const layerName = document.getElementById('layerSelect').value;
-      if (!layerName) return;
+    const { error } = await supabase
+      .from('eventos')
+      .insert([{ titulo, descripcion, fecha, lat, lng }]);
 
-      const { data, error } = await supabase.from(layerName).select('*');
-      if (error) {
-        console.error('Error cargando capa:', error);
-        return;
+    if (error) {
+      alert("Error al guardar el evento: " + error.message);
+    } else {
+      alert("Evento registrado correctamente.");
+      document.getElementById('eventoForm').reset();
+      if (marker) {
+        map.removeLayer(marker);
+        marker = null;
       }
-
-      L.geoJSON(data, {
-        onEachFeature: function (feature, layer) {
-          if (feature.properties) {
-            const popup = Object.entries(feature.properties)
-              .map(([k, v]) => `<b>${k}</b>: ${v}`)
-              .join('<br>');
-            layer.bindPopup(popup);
-          }
-        }
-      }).addTo(map);
     }
+  });
+</script>
 
-    async function reportSpill() {
-      const coordStr = document.getElementById('coordInput').value;
-      const parts = coordStr.split(',').map(p => parseFloat(p.trim()));
-      if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) {
-        alert('Por favor ingrese coordenadas válidas en formato Lat,Lng.');
-        return;
-      }
-      const [lat, lng] = parts;
-      const { error } = await supabase.from('derrames').insert([{ lat, lng }]);
-      if (error) {
-        console.error('Error reportando derrame:', error);
-        return;
-      }
-      L.marker([lat, lng]).addTo(map)
-        .bindPopup('Derrame de petróleo reportado').openPopup();
-    }
-
-    loadLayerList();
-  </script>
 </body>
 </html>
