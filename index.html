@@ -2,33 +2,42 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>Geoportal de Derrames Petroleros</title>
+  <title>Geoportal Interactivo de Derrames Petroleros</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.css"/>
-  <script src="https://unpkg.com/@supabase/supabase-js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
   <style>
-    #map { height: 90vh; width: 100%; }
+    #map { height: 88vh; width: 100%; }
     .control-panel {
       padding: 10px;
       background: #f0f0f0;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .control-panel input, .control-panel select, .control-panel button {
+      margin: 5px;
     }
   </style>
 </head>
 <body>
-  <h2 style="text-align:center">Geoportal - Monitoreo de Derrames Petroleros</h2>
+  <h2 style="text-align:center">Geoportal Interactivo - Monitoreo de Derrames Petroleros</h2>
   <div class="control-panel">
-    <label>Coordenadas (Lat,Lng):</label>
-    <input type="text" id="coords" placeholder="Ej: -0.1234, -76.5432">
-    <button onclick="reportarDerrame()">Reportar Derrame</button>
-    <br><br>
-    <label>Filtrar Capa:</label>
+    <label><strong>Filtrar Capa:</strong></label>
     <select id="capaSelect" onchange="filtrarCapa()">
       <option value="capas">Todas</option>
     </select>
+    <label><strong>Coordenadas seleccionadas:</strong></label>
+    <span id="coordDisplay">(ninguna)</span>
+    <button onclick="enviarReporte()">Reportar Derrame</button>
+    <button onclick="exportarCSV()">Exportar Reportes</button>
   </div>
   <div id="map"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.3/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js"></script>
+  <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
   <script>
     const supabase = supabase.createClient(
       'https://ifofalnxospnvasapqcp.supabase.co',
@@ -40,70 +49,123 @@
       maxZoom: 18
     }).addTo(map);
 
+    L.Control.geocoder().addTo(map);
+
+    let markerSeleccionado = null;
+    map.on('click', function(e) {
+      const { lat, lng } = e.latlng;
+      document.getElementById("coordDisplay").innerText = `(${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+      if (markerSeleccionado) map.removeLayer(markerSeleccionado);
+      markerSeleccionado = L.marker([lat, lng]).addTo(map).bindPopup("Ubicación del derrame").openPopup();
+      markerSeleccionado.lat = lat;
+      markerSeleccionado.lng = lng;
+    });
+
     async function cargarCapas() {
-      const { data: capas } = await supabase.from('capas').select('*');
-      capas.forEach(c => {
+      const vistas = [
+        'vista_gasoducto',
+        'vista_pozos_petroleros',
+        'vista_campos_petroleros',
+        'vista_red_vial',
+        'vista_estacionesbombeo'
+      ];
+      vistas.forEach(nombre => {
         const option = document.createElement("option");
-        option.value = c.nombre;
-        option.textContent = c.nombre;
+        option.value = nombre;
+        option.textContent = nombre;
         document.getElementById("capaSelect").appendChild(option);
       });
-      mostrarCapas(capas);
+      mostrarCapas(vistas);
     }
 
     async function mostrarCapas(listaCapas) {
-      listaCapas.forEach(async (capa) => {
-        const { data: features } = await supabase.from(capa.nombre).select('*');
-        features.forEach(f => {
-          if (f.geojson) {
-            const geo = JSON.parse(f.geojson);
-            L.geoJSON(geo).addTo(map).bindPopup(`<strong>${capa.nombre}</strong><br>${f.descripcion || ''}`);
-          }
-        });
+      listaCapas.forEach(async (nombre) => {
+        try {
+          const { data: features, error } = await supabase.from(nombre).select('*');
+          if (error) console.error(`Error al cargar ${nombre}:`, error);
+          features.forEach(f => {
+            if (f.geojson) {
+              const geo = JSON.parse(f.geojson);
+              L.geoJSON(geo, {
+                style: { color: '#0074D9', weight: 2 },
+                onEachFeature: function (feature, layer) {
+                  layer.bindPopup(`<strong>${nombre}</strong><br>${f.descripcion || 'Sin descripción'}`);
+                }
+              }).addTo(map);
+            }
+          });
+        } catch (err) {
+          console.error(`Error general en capa ${nombre}:`, err);
+        }
       });
     }
 
     async function filtrarCapa() {
       map.eachLayer(layer => {
-        if (layer instanceof L.GeoJSON) map.removeLayer(layer);
+        if (layer instanceof L.GeoJSON || (layer instanceof L.Marker && layer !== markerSeleccionado)) {
+          map.removeLayer(layer);
+        }
       });
       const filtro = document.getElementById('capaSelect').value;
       if (filtro === 'capas') {
-        const { data: capas } = await supabase.from('capas').select('*');
-        mostrarCapas(capas);
+        cargarCapas();
       } else {
-        const { data: features } = await supabase.from(filtro).select('*');
+        const { data: features, error } = await supabase.from(filtro).select('*');
+        if (error) {
+          console.error(`Error al cargar ${filtro}:`, error);
+          return;
+        }
         features.forEach(f => {
           if (f.geojson) {
             const geo = JSON.parse(f.geojson);
-            L.geoJSON(geo).addTo(map).bindPopup(`<strong>${filtro}</strong><br>${f.descripcion || ''}`);
+            L.geoJSON(geo, {
+              style: { color: '#FF4136', weight: 2 },
+              onEachFeature: function (feature, layer) {
+                layer.bindPopup(`<strong>${filtro}</strong><br>${f.descripcion || 'Sin descripción'}`);
+              }
+            }).addTo(map);
           }
         });
       }
     }
 
-    async function reportarDerrame() {
-      const coordInput = document.getElementById("coords").value;
-      const partes = coordInput.split(',');
-      if (partes.length !== 2) {
-        alert("Ingrese coordenadas válidas (lat,lng)");
+    async function enviarReporte() {
+      if (!markerSeleccionado) {
+        alert("Seleccione una ubicación haciendo clic en el mapa.");
         return;
       }
-      const lat = parseFloat(partes[0]);
-      const lng = parseFloat(partes[1]);
-
       const punto = {
         type: "Point",
-        coordinates: [lng, lat]
+        coordinates: [markerSeleccionado.lng, markerSeleccionado.lat]
       };
-
-      const { error } = await supabase.from('reportes').insert([{ geojson: JSON.stringify(punto), descripcion: 'Derrame reportado manualmente' }]);
+      const { error } = await supabase.from('reportes').insert([{ geojson: JSON.stringify(punto), descripcion: 'Derrame reportado desde el mapa' }]);
       if (!error) {
         alert("Reporte enviado correctamente.");
-        L.geoJSON(punto).addTo(map).bindPopup("Nuevo derrame reportado");
       } else {
         alert("Error al enviar reporte");
       }
+    }
+
+    async function exportarCSV() {
+      const { data, error } = await supabase.from('reportes').select('*');
+      if (error || !data) {
+        alert("No se pudo exportar los datos.");
+        return;
+      }
+      const csv = ["lat,lng,descripcion"];
+      data.forEach(row => {
+        try {
+          const geo = JSON.parse(row.geojson);
+          const [lng, lat] = geo.coordinates;
+          csv.push(`${lat},${lng},${row.descripcion}`);
+        } catch {}
+      });
+      const blob = new Blob([csv.join("\n")], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.setAttribute('href', url);
+      a.setAttribute('download', 'reportes_derrames.csv');
+      a.click();
     }
 
     cargarCapas();
